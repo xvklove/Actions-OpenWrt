@@ -1,0 +1,161 @@
+name: Build OpenWrt 25.12.2 x86_64
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions (true/false)'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+        - "true"
+        - "false"
+      version:
+        description: 'OpenWrt version (e.g. v25.12.2 或 openwrt-25.12)'
+        required: true
+        default: 'v25.12.2'
+        type: string
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt.git
+  REPO_BRANCH: openwrt-25.12
+  BUILD_ROOT: ${{ github.workspace }}/openwrt
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get -qq update && sudo apt-get -qq upgrade
+        sudo apt-get -qq install build-essential clang flex bison gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3 python3-pip python3-pyelftools quilt rsync unzip zlib1g-dev file wget libelf-dev
+        sudo apt-get -qq autoremove --purge
+        sudo apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: Maximize build disk space
+      uses: easimon/maximize-build-space@master
+      with:
+        remove-dotnet: true
+        remove-android: true
+        remove-haskell: true
+        remove-codeql: true
+        remove-docker-images: true
+
+    - name: Checkout custom scripts & files
+      uses: actions/checkout@main
+
+    - name: Download OpenWrt sources
+      run: |
+        git clone --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} $BUILD_ROOT
+        cd $BUILD_ROOT
+
+    - name: Checkout specific version/tag
+      run: |
+        cd $BUILD_ROOT
+        if [[ "${{ github.event.inputs.version }}" == "v25.12.2" || "${{ github.event.inputs.version }}" == "25.12.2" ]]; then
+          git checkout v25.12.2
+        else
+          git checkout ${{ github.event.inputs.version }}
+        fi
+        echo "当前编译版本: $(git describe --tags)"
+
+    - name: Update feeds and install custom feeds
+      run: |
+        cd $BUILD_ROOT
+        cat > feeds.conf << EOF
+src-git packages https://github.com/openwrt/packages.git^{branch=openwrt-25.12}
+src-git luci https://github.com/openwrt/luci.git^{branch=openwrt-25.12}
+src-git routing https://github.com/openwrt/routing.git^{branch=openwrt-25.12}
+# 第三方 feeds（Argon、加速等）
+src-git jerrykuku https://github.com/jerrykuku/luci-app-argon-config.git
+src-git small https://github.com/smallprogram/OpenWrtAction/packages.git
+EOF
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Apply custom .config (x86_64 + 你所有需求)
+      run: |
+        cd $BUILD_ROOT
+        cat > .config << 'EOL'
+CONFIG_TARGET_x86=y
+CONFIG_TARGET_x86_64=y
+CONFIG_TARGET_x86_64_GENERIC=y
+
+# 基础 LuCI + 中文
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+CONFIG_PACKAGE_luci-app-package-manager=y   # 25.12 apk 管理器
+
+# Argon 美化主题
+CONFIG_PACKAGE_luci-theme-argon=y
+CONFIG_PACKAGE_luci-app-argon-config=y
+
+# 应用商店 (iStore / store)
+CONFIG_PACKAGE_luci-app-store=y
+
+# Docker
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_luci-app-docker=y
+
+# 网络加速 + BBR
+CONFIG_PACKAGE_luci-app-turboacc=y
+CONFIG_PACKAGE_turboacc_INCLUDE_BBR_CCA=y
+
+# 其他插件
+CONFIG_PACKAGE_zerotier=y
+CONFIG_PACKAGE_luci-app-zerotier=y
+CONFIG_PACKAGE_udpxy=y
+CONFIG_PACKAGE_luci-app-udpxy=y
+CONFIG_PACKAGE_gowebdav=y
+CONFIG_PACKAGE_luci-app-gowebdav=y
+
+# 分区扩容 + 磁盘挂载
+CONFIG_PACKAGE_luci-app-diskman=y
+CONFIG_PACKAGE_parted=y
+CONFIG_PACKAGE_e2fsprogs=y
+CONFIG_PACKAGE_fdisk=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-ntfs3=y
+CONFIG_PACKAGE_kmod-fs-exfat=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_block-mount=y
+
+# 常用依赖
+CONFIG_PACKAGE_luci-ssl-nginx=y
+CONFIG_PACKAGE_openssl=y
+CONFIG_PACKAGE_ca-certificates=y
+EOL
+
+        make defconfig
+
+    - name: Start SSH via tmate (if enabled)
+      uses: rdp-studio/ssh2actions@main
+      if: github.event.inputs.ssh == 'true'
+
+    - name: Build firmware
+      run: |
+        cd $BUILD_ROOT
+        echo "开始编译 (x86_64) 使用 $(($(nproc)+1)) 线程..."
+        make -j$(($(nproc)+1)) download || true
+        make -j$(($(nproc)+1)) V=s || make -j1 V=s IGNORE_ERRORS=m
+
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@main
+      with:
+        name: OpenWrt_25.12.2_x86_64_${{ github.run_number }}
+        path: ${{ env.BUILD_ROOT }}/bin/targets/x86/64/*.img.gz
+        retention-days: 30
+
+    - name: Organize and show SHA256
+      run: |
+        cd ${{ env.BUILD_ROOT }}/bin/targets/x86/64
+        ls -lh *.img.gz
+        sha256sum *.img.gz > SHA256SUMS
+        cat SHA256SUMS
