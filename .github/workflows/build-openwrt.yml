@@ -13,7 +13,7 @@ on:
         - "true"
         - "false"
       version:
-        description: 'OpenWrt version (e.g. v25.12.2 或 openwrt-25.12)'
+        description: 'OpenWrt version (默认 v25.12.2)'
         required: true
         default: 'v25.12.2'
         type: string
@@ -47,17 +47,17 @@ jobs:
         remove-codeql: true
         remove-docker-images: true
 
-    - name: Checkout custom scripts & files
+    - name: Checkout repository
       uses: actions/checkout@main
 
     - name: Download OpenWrt sources
       run: |
-        git clone --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} $BUILD_ROOT
-        cd $BUILD_ROOT
+        git clone --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} ${{ env.BUILD_ROOT }}
+        cd ${{ env.BUILD_ROOT }}
 
-    - name: Checkout specific version/tag
+    - name: Checkout specific version
       run: |
-        cd $BUILD_ROOT
+        cd ${{ env.BUILD_ROOT }}
         if [[ "${{ github.event.inputs.version }}" == "v25.12.2" || "${{ github.event.inputs.version }}" == "25.12.2" ]]; then
           git checkout v25.12.2
         else
@@ -65,38 +65,36 @@ jobs:
         fi
         echo "当前编译版本: $(git describe --tags)"
 
-    - name: Update feeds and install custom feeds
+    - name: Setup feeds
       run: |
-        cd $BUILD_ROOT
+        cd ${{ env.BUILD_ROOT }}
         cat > feeds.conf << EOF
 src-git packages https://github.com/openwrt/packages.git^{branch=openwrt-25.12}
 src-git luci https://github.com/openwrt/luci.git^{branch=openwrt-25.12}
 src-git routing https://github.com/openwrt/routing.git^{branch=openwrt-25.12}
-# 第三方 feeds（Argon、加速等）
 src-git jerrykuku https://github.com/jerrykuku/luci-app-argon-config.git
-src-git small https://github.com/smallprogram/OpenWrtAction/packages.git
 EOF
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Apply custom .config (x86_64 + 你所有需求)
+    - name: Apply custom .config for x86_64 + 全部特性
       run: |
-        cd $BUILD_ROOT
+        cd ${{ env.BUILD_ROOT }}
         cat > .config << 'EOL'
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_GENERIC=y
 
-# 基础 LuCI + 中文
+# LuCI + 中文界面 + apk 包管理器
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-CONFIG_PACKAGE_luci-app-package-manager=y   # 25.12 apk 管理器
+CONFIG_PACKAGE_luci-app-package-manager=y
 
 # Argon 美化主题
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-app-argon-config=y
 
-# 应用商店 (iStore / store)
+# 应用商店 (iStore)
 CONFIG_PACKAGE_luci-app-store=y
 
 # Docker
@@ -104,7 +102,7 @@ CONFIG_PACKAGE_docker=y
 CONFIG_PACKAGE_dockerd=y
 CONFIG_PACKAGE_luci-app-docker=y
 
-# 网络加速 + BBR
+# BBR 加速
 CONFIG_PACKAGE_luci-app-turboacc=y
 CONFIG_PACKAGE_turboacc_INCLUDE_BBR_CCA=y
 
@@ -116,7 +114,7 @@ CONFIG_PACKAGE_luci-app-udpxy=y
 CONFIG_PACKAGE_gowebdav=y
 CONFIG_PACKAGE_luci-app-gowebdav=y
 
-# 分区扩容 + 磁盘挂载
+# 分区扩容 + 磁盘挂载点
 CONFIG_PACKAGE_luci-app-diskman=y
 CONFIG_PACKAGE_parted=y
 CONFIG_PACKAGE_e2fsprogs=y
@@ -135,27 +133,26 @@ EOL
 
         make defconfig
 
-    - name: Start SSH via tmate (if enabled)
+    - name: Start SSH via tmate (调试用)
       uses: rdp-studio/ssh2actions@main
       if: github.event.inputs.ssh == 'true'
 
     - name: Build firmware
       run: |
-        cd $BUILD_ROOT
-        echo "开始编译 (x86_64) 使用 $(($(nproc)+1)) 线程..."
+        cd ${{ env.BUILD_ROOT }}
+        echo "开始编译，使用 $(($(nproc)+1)) 线程..."
         make -j$(($(nproc)+1)) download || true
         make -j$(($(nproc)+1)) V=s || make -j1 V=s IGNORE_ERRORS=m
 
-    - name: Upload firmware artifacts
+    - name: Upload firmware
       uses: actions/upload-artifact@main
       with:
         name: OpenWrt_25.12.2_x86_64_${{ github.run_number }}
         path: ${{ env.BUILD_ROOT }}/bin/targets/x86/64/*.img.gz
         retention-days: 30
 
-    - name: Organize and show SHA256
+    - name: Show firmware files and SHA256
       run: |
         cd ${{ env.BUILD_ROOT }}/bin/targets/x86/64
         ls -lh *.img.gz
-        sha256sum *.img.gz > SHA256SUMS
-        cat SHA256SUMS
+        sha256sum *.img.gz
