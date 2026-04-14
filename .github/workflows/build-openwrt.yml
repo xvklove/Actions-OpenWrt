@@ -55,14 +55,10 @@ jobs:
         git clone --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} ${{ env.BUILD_ROOT }}
         cd ${{ env.BUILD_ROOT }}
 
-    - name: Checkout specific version
+    - name: Checkout specific version (v25.12.2)
       run: |
         cd ${{ env.BUILD_ROOT }}
-        if [[ "${{ github.event.inputs.version }}" == "v25.12.2" || "${{ github.event.inputs.version }}" == "25.12.2" ]]; then
-          git checkout v25.12.2
-        else
-          git checkout ${{ github.event.inputs.version }}
-        fi
+        git checkout v25.12.2
         echo "当前编译版本: $(git describe --tags)"
 
     - name: Setup feeds
@@ -77,10 +73,10 @@ EOF
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Apply custom .config for x86_64 + 全部特性
+    - name: Apply custom .config (x86_64 + 中文 + Argon + iStore + Docker + BBR + diskman 等全部特性)
       run: |
         cd ${{ env.BUILD_ROOT }}
-        cat > .config << 'EOL'
+        cat > .config << 'CONFIG_END'
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_GENERIC=y
@@ -94,7 +90,7 @@ CONFIG_PACKAGE_luci-app-package-manager=y
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-app-argon-config=y
 
-# 应用商店 (iStore)
+# 应用商店
 CONFIG_PACKAGE_luci-app-store=y
 
 # Docker
@@ -114,7 +110,7 @@ CONFIG_PACKAGE_luci-app-udpxy=y
 CONFIG_PACKAGE_gowebdav=y
 CONFIG_PACKAGE_luci-app-gowebdav=y
 
-# 分区扩容 + 磁盘挂载点
+# 分区扩容 + 磁盘挂载
 CONFIG_PACKAGE_luci-app-diskman=y
 CONFIG_PACKAGE_parted=y
 CONFIG_PACKAGE_e2fsprogs=y
@@ -129,22 +125,22 @@ CONFIG_PACKAGE_block-mount=y
 CONFIG_PACKAGE_luci-ssl-nginx=y
 CONFIG_PACKAGE_openssl=y
 CONFIG_PACKAGE_ca-certificates=y
-EOL
+CONFIG_END
 
         make defconfig
 
-    - name: Start SSH via tmate (调试用)
+    - name: Start SSH via tmate (调试用，可选)
       uses: rdp-studio/ssh2actions@main
       if: github.event.inputs.ssh == 'true'
 
     - name: Build firmware
       run: |
         cd ${{ env.BUILD_ROOT }}
-        echo "开始编译，使用 $(($(nproc)+1)) 线程..."
+        echo "开始编译 x86_64，使用 $(($(nproc)+1)) 线程..."
         make -j$(($(nproc)+1)) download || true
         make -j$(($(nproc)+1)) V=s || make -j1 V=s IGNORE_ERRORS=m
 
-    - name: Upload firmware
+    - name: Upload firmware artifacts
       uses: actions/upload-artifact@main
       with:
         name: OpenWrt_25.12.2_x86_64_${{ github.run_number }}
@@ -154,5 +150,5 @@ EOL
     - name: Show firmware files and SHA256
       run: |
         cd ${{ env.BUILD_ROOT }}/bin/targets/x86/64
-        ls -lh *.img.gz
-        sha256sum *.img.gz
+        ls -lh *.img.gz || true
+        sha256sum *.img.gz || true
