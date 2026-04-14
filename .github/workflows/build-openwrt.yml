@@ -55,7 +55,7 @@ jobs:
         git clone --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} ${{ env.BUILD_ROOT }}
         cd ${{ env.BUILD_ROOT }}
 
-    - name: Checkout specific version (v25.12.2)
+    - name: Checkout v25.12.2
       run: |
         cd ${{ env.BUILD_ROOT }}
         git checkout v25.12.2
@@ -73,7 +73,7 @@ EOF
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Apply custom .config (x86_64 + 中文 + Argon + iStore + Docker + BBR + diskman 等全部特性)
+    - name: Create custom .config (x86_64 + 中文 + Argon + iStore + Docker + BBR + diskman)
       run: |
         cd ${{ env.BUILD_ROOT }}
         cat > .config << 'CONFIG_END'
@@ -81,28 +81,22 @@ CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_GENERIC=y
 
-# LuCI + 中文界面 + apk 包管理器
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 CONFIG_PACKAGE_luci-app-package-manager=y
 
-# Argon 美化主题
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-app-argon-config=y
 
-# 应用商店
 CONFIG_PACKAGE_luci-app-store=y
 
-# Docker
 CONFIG_PACKAGE_docker=y
 CONFIG_PACKAGE_dockerd=y
 CONFIG_PACKAGE_luci-app-docker=y
 
-# BBR 加速
 CONFIG_PACKAGE_luci-app-turboacc=y
 CONFIG_PACKAGE_turboacc_INCLUDE_BBR_CCA=y
 
-# 其他插件
 CONFIG_PACKAGE_zerotier=y
 CONFIG_PACKAGE_luci-app-zerotier=y
 CONFIG_PACKAGE_udpxy=y
@@ -110,7 +104,6 @@ CONFIG_PACKAGE_luci-app-udpxy=y
 CONFIG_PACKAGE_gowebdav=y
 CONFIG_PACKAGE_luci-app-gowebdav=y
 
-# 分区扩容 + 磁盘挂载
 CONFIG_PACKAGE_luci-app-diskman=y
 CONFIG_PACKAGE_parted=y
 CONFIG_PACKAGE_e2fsprogs=y
@@ -121,7 +114,6 @@ CONFIG_PACKAGE_kmod-fs-exfat=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
 CONFIG_PACKAGE_block-mount=y
 
-# 常用依赖
 CONFIG_PACKAGE_luci-ssl-nginx=y
 CONFIG_PACKAGE_openssl=y
 CONFIG_PACKAGE_ca-certificates=y
@@ -129,7 +121,7 @@ CONFIG_END
 
         make defconfig
 
-    - name: Start SSH via tmate (调试用，可选)
+    - name: Start SSH via tmate (可选调试)
       uses: rdp-studio/ssh2actions@main
       if: github.event.inputs.ssh == 'true'
 
@@ -140,15 +132,15 @@ CONFIG_END
         make -j$(($(nproc)+1)) download || true
         make -j$(($(nproc)+1)) V=s || make -j1 V=s IGNORE_ERRORS=m
 
-    - name: Upload firmware artifacts
+    - name: Upload firmware
       uses: actions/upload-artifact@main
       with:
         name: OpenWrt_25.12.2_x86_64_${{ github.run_number }}
         path: ${{ env.BUILD_ROOT }}/bin/targets/x86/64/*.img.gz
         retention-days: 30
 
-    - name: Show firmware files and SHA256
+    - name: Show firmware files
       run: |
-        cd ${{ env.BUILD_ROOT }}/bin/targets/x86/64
+        cd ${{ env.BUILD_ROOT }}/bin/targets/x86/64 || true
         ls -lh *.img.gz || true
         sha256sum *.img.gz || true
