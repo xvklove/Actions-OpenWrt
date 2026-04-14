@@ -1,4 +1,3 @@
-
 name: Build OpenWrt 25.12.2 x86_64
 
 on:
@@ -74,7 +73,7 @@ FEEDS_END
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Create custom .config (x86_64 + 中文 + Argon + iStore + Docker + BBR + diskman)
+      - name: Create custom .config (x86_64 + 你所需全部特性)
         run: |
           cd ${{ env.BUILD_ROOT }}
           > .config
